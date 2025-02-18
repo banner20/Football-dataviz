@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Football Visualization: Teams, Players, and Pitch Lines</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body {
+      background-color: #021e3f;
+      margin: 0;
+      font-family: sans-serif;
+      color: white;
+    }
+    h1 {
+      text-align: center;
+      margin-top: 1em;
+    }
+    #controls {
+      width: 800px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    select, label {
+      margin: 0 8px;
+    }
+    #pitch {
+      display: block;
+      margin: 1em auto;
+      background: #01643f; /* pitch color */
+      border: 2px solid #ffffff;
+    }
+    /* Circles for Shots, Goals, Passes, Assists */
+    .shots-circle {
+      fill: red;
+      stroke: white;
+      stroke-width: 1;
+    }
+    .goals-circle {
+      fill: magenta;
+      stroke: white;
+      stroke-width: 1;
+    }
+    .passes-circle {
+      fill: gold;
+      stroke: white;
+      stroke-width: 1;
+    }
+    .assists-circle {
+      fill: orange;
+      stroke: white;
+      stroke-width: 1;
+    }
+    /* Lines for Shots, Goals, Passes, Assists */
+    .shots-line {
+      stroke: red;
+      stroke-width: 1.5;
+      opacity: 0.8;
+    }
+    .goals-line {
+      stroke: magenta;
+      stroke-width: 1.5;
+      opacity: 0.8;
+    }
+    .passes-line {
+      stroke: gold;
+      stroke-width: 1.5;
+      opacity: 0.8;
+    }
+    .assists-line {
+      stroke: orange;
+      stroke-width: 1.5;
+      opacity: 0.8;
+    }
+    /* Pitch Lines */
+    .pitch-line {
+      stroke: white;
+      stroke-width: 2;
+      fill: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Football Visualization: Teams, Players, and Realistic Pitch</h1>
+
+  <div id="controls">
+    <!-- Team & Player dropdowns -->
+    <label>Team:</label>
+    <select id="teamSelect">
+      <option value="All">All</option>
+      <!-- More options appended dynamically -->
+    </select>
+
+    <label>Player:</label>
+    <select id="playerSelect">
+      <option value="All">All</option>
+      <!-- More options appended dynamically -->
+    </select>
+    <br/><br/>
+
+    <!-- Checkboxes -->
+    <label><input type="checkbox" id="chkShots"> Shots</label>
+    <label><input type="checkbox" id="chkGoals"> Goals</label>
+    <label><input type="checkbox" id="chkPasses"> Passes</label>
+    <label><input type="checkbox" id="chkAssists"> Assists</label>
+    <label><input type="checkbox" id="chkDirections"> Directions</label>
+  </div>
+
+  <svg id="pitch" width="800" height="533"></svg>
+  <!-- Using 800x533 so the 120x80 pitch ratio is roughly maintained (1.5). -->
+
+  <script>
+    // Basic pitch dimension: 120 x 80
+    const svg = d3.select("#pitch");
+    const width = +svg.attr("width");
+    const height = +svg.attr("height");
+
+    // Create scales for x and y: [0..120] -> [0..width], [0..80] -> [0..height]
+    const xScale = d3.scaleLinear().domain([0, 120]).range([0, width]);
+    const yScale = d3.scaleLinear().domain([0, 80]).range([0, height]);
+
+    // Add a group for pitch lines
+    const gPitchLines = svg.append("g").attr("class", "pitch-lines");
+
+    // Draw the pitch lines (center line, penalty boxes, etc.)
+    drawPitchLines();
+
+    // Groups for circles & lines of each category
+    const gShotsCircles = svg.append("g");
+    const gShotsLines   = svg.append("g");
+    const gGoalsCircles = svg.append("g");
+    const gGoalsLines   = svg.append("g");
+    const gPassesCircles= svg.append("g");
+    const gPassesLines  = svg.append("g");
+    const gAssistsCircles = svg.append("g");
+    const gAssistsLines   = svg.append("g");
+
+    // Load JSON
+    d3.json("subset_bundesliga2.json").then(data => {
+      console.log("Data loaded:", data.length);
+
+      // 1) Split data into Shots (non-goal), Goals, Passes, Assists
+      const shots = data.filter(d => d.type === "Shot" && d.shot_outcome !== "Goal");
+      const goals = data.filter(d => d.type === "Shot" && d.shot_outcome === "Goal");
+      const passes = data.filter(d => d.type === "Pass" && !d.pass_shot_assist);
+      const assists = data.filter(d => d.type === "Pass" && d.pass_shot_assist != null);
+
+      console.log("Shots:", shots.length);
+      console.log("Goals:", goals.length);
+      console.log("Passes:", passes.length);
+      console.log("Assists:", assists.length);
+
+      // 2) Gather unique teams & players
+      const allTeams = Array.from(new Set(data.map(d => d.team).filter(Boolean))).sort();
+      const allPlayers = Array.from(new Set(data.map(d => d.player).filter(Boolean))).sort();
+
+      // Populate Team dropdown
+      const teamSelect = document.getElementById("teamSelect");
+      allTeams.forEach(t => {
+        const opt = document.createElement("option");
+        opt.value = t;
+        opt.text = t;
+        teamSelect.appendChild(opt);
+      });
+
+      // Populate Player dropdown
+      const playerSelect = document.getElementById("playerSelect");
+      allPlayers.forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p;
+        opt.text = p;
+        playerSelect.appendChild(opt);
+      });
+
+      // 3) Draw circles
+      gShotsCircles.selectAll(".shots-circle")
+        .data(shots)
+        .enter()
+        .append("circle")
+        .attr("class", "shots-circle")
+        .attr("cx", d => xScaleLoc(d.location))
+        .attr("cy", d => yScaleLoc(d.location))
+        .attr("r", 4)
+        .attr("data-team", d => d.team)
+        .attr("data-player", d => d.player);
+
+      gGoalsCircles.selectAll(".goals-circle")
+        .data(goals)
+        .enter()
+        .append("circle")
+        .attr("class", "goals-circle")
+        .attr("cx", d => xScaleLoc(d.location))
+        .attr("cy", d => yScaleLoc(d.location))
+        .attr("r", 4)
+        .attr("data-team", d => d.team)
+        .attr("data-player", d => d.player);
+
+      gPassesCircles.selectAll(".passes-circle")
+        .data(passes)
+        .enter()
+        .append("circle")
+        .attr("class", "passes-circle")
+        .attr("cx", d => xScaleLoc(d.location))
+        .attr("cy", d => yScaleLoc(d.location))
+        .attr("r", 4)
+        .attr("data-team", d => d.team)
+        .attr("data-player", d => d.player);
+
+      gAssistsCircles.selectAll(".assists-circle")
+        .data(assists)
+        .enter()
+        .append("circle")
+        .attr("class", "assists-circle")
+        .attr("cx", d => xScaleLoc(d.location))
+        .attr("cy", d => yScaleLoc(d.location))
+        .attr("r", 4)
+        .attr("data-team", d => d.team)
+        .attr("data-player", d => d.player);
+
+      // 4) Draw lines
+      gShotsLines.selectAll(".shots-line")
+        .data(shots)
+        .enter()
+        .append("line")
+        .attr("class", "shots-line")
+        .attr("x1", d => xScaleLoc(d.location))
+        .attr("y1", d => yScaleLoc(d.location))
+        .attr("x2", d => xScaleLoc(d.shot_end_location))
+        .attr("y2", d => yScaleLoc(d.shot_end_location))
+        .attr("data-team", d => d.team)
+        .attr("data-player", d => d.player);
+
+      gGoalsLines.selectAll(".goals-line")
+        .data(goals)
+        .enter()
+        .append("line")
+        .attr("class", "goals-line")
+        .attr("x1", d => xScaleLoc(d.location))
+        .attr("y1", d => yScaleLoc(d.location))
+        .attr("x2", d => xScaleLoc(d.shot_end_location))
+        .attr("y2", d => yScaleLoc(d.shot_end_location))
+        .attr("data-team", d => d.team)
+        .attr("data-player", d => d.player);
+
+      gPassesLines.selectAll(".passes-line")
+        .data(passes)
+        .enter()
+        .append("line")
+        .attr("class", "passes-line")
+        .attr("x1", d => xScaleLoc(d.location))
+        .attr("y1", d => yScaleLoc(d.location))
+        .attr("x2", d => xScaleLoc(d.pass_end_location))
+        .attr("y2", d => yScaleLoc(d.pass_end_location))
+        .attr("data-team", d => d.team)
+        .attr("data-player", d => d.player);
+
+      gAssistsLines.selectAll(".assists-line")
+        .data(assists)
+        .enter()
+        .append("line")
+        .attr("class", "assists-line")
+        .attr("x1", d => xScaleLoc(d.location))
+        .attr("y1", d => yScaleLoc(d.location))
+        .attr("x2", d => xScaleLoc(d.pass_end_location))
+        .attr("y2", d => yScaleLoc(d.pass_end_location))
+        .attr("data-team", d => d.team)
+        .attr("data-player", d => d.player);
+
+      // Hide everything by default
+      hideAllGroups();
+
+      // Checkbox references
+      const chkShots = document.getElementById("chkShots");
+      const chkGoals = document.getElementById("chkGoals");
+      const chkPasses = document.getElementById("chkPasses");
+      const chkAssists = document.getElementById("chkAssists");
+      const chkDirections = document.getElementById("chkDirections");
+
+      // Dropdown references
+      const teamSelectEl = document.getElementById("teamSelect");
+      const playerSelectEl = document.getElementById("playerSelect");
+
+      // When user changes team, filter the players to only those in that team
+      teamSelectEl.addEventListener("change", function() {
+        const selectedTeam = teamSelectEl.value;
+        // If "All", show all players in the dropdown
+        if (selectedTeam === "All") {
+          updatePlayerDropdown(allPlayers);
+        } else {
+          // Filter players who appear with this team in the data
+          const teamPlayers = data
+            .filter(d => d.team === selectedTeam && d.player)
+            .map(d => d.player);
+          updatePlayerDropdown(Array.from(new Set(teamPlayers)).sort());
+        }
+        // After changing the player dropdown, re-run updateVisibility
+        updateVisibility();
+      });
+
+      // When user changes the player dropdown, just updateVisibility
+      playerSelectEl.addEventListener("change", updateVisibility);
+
+      // Checkbox changes
+      chkShots.addEventListener("change", updateVisibility);
+      chkGoals.addEventListener("change", updateVisibility);
+      chkPasses.addEventListener("change", updateVisibility);
+      chkAssists.addEventListener("change", updateVisibility);
+      chkDirections.addEventListener("change", updateVisibility);
+
+      function updateVisibility() {
+        const selectedTeam = teamSelectEl.value;    // e.g. "All" or "Bayern Munich"
+        const selectedPlayer = playerSelectEl.value; // e.g. "All" or a player name
+
+        // Shots Circles
+        gShotsCircles.style("display", chkShots.checked ? "inline" : "none");
+        gShotsCircles.selectAll(".shots-circle").style("display", function() {
+          return passesFilter(this, selectedTeam, selectedPlayer, chkShots.checked);
+        });
+
+        // Shots Lines
+        gShotsLines.style("display", (chkShots.checked && chkDirections.checked) ? "inline" : "none");
+        gShotsLines.selectAll(".shots-line").style("display", function() {
+          return passesFilter(this, selectedTeam, selectedPlayer, (chkShots.checked && chkDirections.checked));
+        });
+
+        // Goals Circles
+        gGoalsCircles.style("display", chkGoals.checked ? "inline" : "none");
+        gGoalsCircles.selectAll(".goals-circle").style("display", function() {
+          return passesFilter(this, selectedTeam, selectedPlayer, chkGoals.checked);
+        });
+
+        // Goals Lines
+        gGoalsLines.style("display", (chkGoals.checked && chkDirections.checked) ? "inline" : "none");
+        gGoalsLines.selectAll(".goals-line").style("display", function() {
+          return passesFilter(this, selectedTeam, selectedPlayer, (chkGoals.checked && chkDirections.checked));
+        });
+
+        // Passes Circles
+        gPassesCircles.style("display", chkPasses.checked ? "inline" : "none");
+        gPassesCircles.selectAll(".passes-circle").style("display", function() {
+          return passesFilter(this, selectedTeam, selectedPlayer, chkPasses.checked);
+        });
+
+        // Passes Lines
+        gPassesLines.style("display", (chkPasses.checked && chkDirections.checked) ? "inline" : "none");
+        gPassesLines.selectAll(".passes-line").style("display", function() {
+          return passesFilter(this, selectedTeam, selectedPlayer, (chkPasses.checked && chkDirections.checked));
+        });
+
+        // Assists Circles
+        gAssistsCircles.style("display", chkAssists.checked ? "inline" : "none");
+        gAssistsCircles.selectAll(".assists-circle").style("display", function() {
+          return passesFilter(this, selectedTeam, selectedPlayer, chkAssists.checked);
+        });
+
+        // Assists Lines
+        gAssistsLines.style("display", (chkAssists.checked && chkDirections.checked) ? "inline" : "none");
+        gAssistsLines.selectAll(".assists-line").style("display", function() {
+          return passesFilter(this, selectedTeam, selectedPlayer, (chkAssists.checked && chkDirections.checked));
+        });
+      }
+
+      function passesFilter(element, teamVal, playerVal, isChecked) {
+        if (!isChecked) return "none"; // Category not checked
+        const el = d3.select(element);
+        const elTeam = el.attr("data-team");
+        const elPlayer = el.attr("data-player");
+
+        if (teamVal !== "All" && elTeam !== teamVal) return "none";
+        if (playerVal !== "All" && elPlayer !== playerVal) return "none";
+        return "inline";
+      }
+
+      function updatePlayerDropdown(players) {
+        playerSelectEl.innerHTML = ""; // clear existing
+        const optAll = document.createElement("option");
+        optAll.value = "All";
+        optAll.text = "All";
+        playerSelectEl.appendChild(optAll);
+        players.forEach(p => {
+          const opt = document.createElement("option");
+          opt.value = p;
+          opt.text = p;
+          playerSelectEl.appendChild(opt);
+        });
+        // Default to "All"
+        playerSelectEl.value = "All";
+      }
+    })
+    .catch(err => {
+      console.error("Error loading JSON:", err);
+    });
+
+    // Hide all groups initially
+    function hideAllGroups() {
+      gShotsCircles.style("display", "none");
+      gShotsLines.style("display", "none");
+      gGoalsCircles.style("display", "none");
+      gGoalsLines.style("display", "none");
+      gPassesCircles.style("display", "none");
+      gPassesLines.style("display", "none");
+      gAssistsCircles.style("display", "none");
+      gAssistsLines.style("display", "none");
+    }
+
+    // Helper for scaling location
+    function xScaleLoc(loc) {
+      if (Array.isArray(loc) && loc.length >= 2) {
+        return xScale(loc[0]);
+      }
+      return xScale(60); // fallback
+    }
+    function yScaleLoc(loc) {
+      if (Array.isArray(loc) && loc.length >= 2) {
+        return yScale(loc[1]);
+      }
+      return yScale(40); // fallback
+    }
+
+    // Function to draw standard pitch lines:
+    // - Outer boundaries
+    // - Center line
+    // - Center circle
+    // - Left/Right penalty box & 6-yard box
+    // - Goals
+    function drawPitchLines() {
+      // Outer boundary (rectangle from (0,0) to (120,80)) is already your background,
+      // but let's do it explicitly with lines if you prefer:
+      drawLine(0, 0, 120, 0);
+      drawLine(120, 0, 120, 80);
+      drawLine(120, 80, 0, 80);
+      drawLine(0, 80, 0, 0);
+
+      // Center line
+      drawLine(60, 0, 60, 80);
+
+      // Center circle (radius ~10 yards)
+      drawCircle(60, 40, 10);
+
+      // Left penalty box: from x=0 to x=18, y=18 to y=62
+      drawRect(0, 18, 18, 44);
+      // Left 6-yard box: from x=0 to x=6, y=30 to y=50
+      drawRect(0, 30, 6, 20);
+
+      // Right penalty box: from x=120-18=102 to x=120, y=18 to y=62
+      drawRect(102, 18, 18, 44);
+      // Right 6-yard box: from x=120-6=114, y=30 to y=50
+      drawRect(114, 30, 6, 20);
+
+      // Goals: we'll represent them as lines behind each end
+      // E.g., from y=36 to y=44 at x=0 (left side), and x=120 (right side).
+      drawLine(0, 36, -2, 36);   // left goal line top
+      drawLine(0, 44, -2, 44);   // left goal line bottom
+      drawLine(120, 36, 122, 36); // right goal line top
+      drawLine(120, 44, 122, 44); // right goal line bottom
+    }
+
+    // Helper to draw a line in pitch coords
+    function drawLine(x1, y1, x2, y2) {
+      gPitchLines.append("line")
+        .attr("x1", xScale(x1))
+        .attr("y1", yScale(y1))
+        .attr("x2", xScale(x2))
+        .attr("y2", yScale(y2))
+        .attr("class", "pitch-line");
+    }
+
+    // Helper to draw a rectangle in pitch coords
+    function drawRect(x, y, w, h) {
+      gPitchLines.append("rect")
+        .attr("x", xScale(x))
+        .attr("y", yScale(y))
+        .attr("width", xScale(x + w) - xScale(x))
+        .attr("height", yScale(y + h) - yScale(y))
+        .attr("class", "pitch-line");
+    }
+
+    // Helper to draw a circle in pitch coords
+    // We do the center at (cx, cy) and radius in pitch units
+    function drawCircle(cx, cy, r) {
+      // Convert pitch radius to pixels
+      const rPixels = xScale(cx + r) - xScale(cx);
+      gPitchLines.append("circle")
+        .attr("cx", xScale(cx))
+        .attr("cy", yScale(cy))
+        .attr("r", rPixels)
+        .attr("class", "pitch-line");
+    }
+  </script>
+</body>
+</html>
