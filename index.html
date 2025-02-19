@@ -2057,13 +2057,23 @@ d3.selectAll('input[name="teamSort"]').on('change', function() {
   }
     });
 
+// Add this at the start of your script section
+const DATA_URLS = {
+  events: "https://storage.googleapis.com/euro2024-data/subset_euro_2024.json",
+  players: "https://storage.googleapis.com/euro2024-data/euro2024_players.csv",
+  bracket: "https://storage.googleapis.com/euro2024-data/euros-2024-bracket.json",
+  standings: "https://storage.googleapis.com/euro2024-data/euros_standing.csv"
+};
+
+// Then update all data loading functions:
+
 function loadPlayerData() {
   Promise.all([
-    d3.csv("euro2024_players.csv"),
-    d3.csv("euros_standing.csv")
-  ]).then(([players, standingsData]) => {
-    window.playerData = players;
-    standings = standingsData;
+    d3.json(DATA_URLS.events),
+    d3.csv(DATA_URLS.players)
+  ]).then(([eventData, playerData]) => {
+    window.playerData = playerData;
+    allEvents = eventData;
     updateMarketValueChart();
     updateContributionScatter();
   }).catch(error => {
@@ -2071,13 +2081,10 @@ function loadPlayerData() {
   });
 }
 
-// Add this at the start of updateMarketValueChart
-let standings = [];
-
 function loadStandingsAndUpdateChart() {
   Promise.all([
-    d3.csv("euro2024_players.csv"),
-    d3.csv("euros_standing.csv")
+    d3.csv(DATA_URLS.players),
+    d3.csv(DATA_URLS.standings)
   ]).then(([players, standingsData]) => {
     window.playerData = players;
     standings = standingsData;
@@ -2327,7 +2334,7 @@ function updateContributionScatter() {
     .attr("transform", `translate(${margin.left},${margin.top})`);
 
   // Load only tournament data first
-  d3.json("subset_euro_2024.json").then(eventData => {
+  d3.json(DATA_URLS.events).then(eventData => {
     // Process tournament data
     const playerStats = {};
     
