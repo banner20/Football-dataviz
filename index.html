@@ -799,6 +799,17 @@
  *  - Exclude Penalty is ON by default
  *  - We have small multiples sorted by total goals, each row reversed horizontally
  */
+ let standings; // Declare the variable
+
+// Load the standings data
+d3.csv("https://storage.googleapis.com/euro2024-data/euros_standing.csv")
+  .then(data => {
+    standings = data; // Assign the loaded data to the variable
+    console.log("Standings data loaded successfully:", standings);
+  })
+  .catch(error => {
+    console.error("Error loading standings data:", error);
+  });
 
 const svg = d3.select("#goalsSvg");
 const tooltip = d3.select("#tooltip");
