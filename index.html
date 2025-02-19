@@ -889,7 +889,7 @@ updateNavigation();
 // Update your data loading section
 let allEvents; // Add this with your other global variables
 
-      d3.json("subset_euro_2024.json").then(events => {
+      d3.json("https://storage.googleapis.com/euro2024-data/subset_euro_2024.json").then(events => {
   allEvents = events; // Store all events for use in other slides
   
   // Filter for shot_outcome = "Goal"
@@ -2065,21 +2065,43 @@ const DATA_URLS = {
   standings: "https://storage.googleapis.com/euro2024-data/euros_standing.csv"
 };
 
-// Then update all data loading functions:
+// Add this at the start of your script
+function logDataError(source, error) {
+  console.error(`Error loading ${source}:`, error);
+}
 
+// Update the data loading functions with error handling
 function loadPlayerData() {
+  console.log("Starting to load player data...");
   Promise.all([
-    d3.json(DATA_URLS.events),
-    d3.csv(DATA_URLS.players)
+    d3.json(DATA_URLS.events).catch(error => {
+      logDataError('events', error);
+      return null;
+    }),
+    d3.csv(DATA_URLS.players).catch(error => {
+      logDataError('players', error);
+      return null;
+    })
   ]).then(([eventData, playerData]) => {
+    console.log("Data loaded:", { 
+      events: eventData ? 'success' : 'failed',
+      players: playerData ? 'success' : 'failed'
+    });
+    
+    if (!eventData || !playerData) {
+      console.error("Failed to load required data");
+      return;
+    }
+
     window.playerData = playerData;
     allEvents = eventData;
     updateMarketValueChart();
     updateContributionScatter();
-  }).catch(error => {
-    console.error("Error loading data:", error);
   });
 }
+
+// Also verify your URLs are correct
+console.log("Data URLs:", DATA_URLS);
 
 function loadStandingsAndUpdateChart() {
   Promise.all([
