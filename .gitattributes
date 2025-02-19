@@ -1,1 +1,2 @@
 *.json filter=lfs diff=lfs merge=lfs -text
+subset_euro_2024.json filter=lfs diff=lfs merge=lfs -text
