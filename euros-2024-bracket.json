@@ -64,8 +64,6 @@
     #teamsContainer {
       width: 900px;
       margin: 2em auto;
-      position: relative;
-      overflow: visible;  /* Allow transformed content to be visible */
     }
     .team-chart-bg {
       fill: #eee;
@@ -74,46 +72,11 @@
     }
     .team-label {
       font-size: 12px;
-      text-anchor: end;  /* Right-align text */
+      text-anchor: start;  /* anchor left side */
       alignment-baseline: middle;
-      font-weight: bold;
-    }
-    .goal-count {
-      font-size: 12px;
-      text-anchor: start;  /* Left-align text */
-      alignment-baseline: middle;
-      fill: #666;
     }
     .mini-heat-rect {
       stroke: none;
-    }
-    #teamsSvg {
-      display: block;
-    }
-    .heat-group {
-      mix-blend-mode: multiply;
-    }
-    .mini-heat-rect {
-      stroke: none;
-      shape-rendering: geometricPrecision;
-    }
-    .half-time-line {
-      stroke: black;
-      pointer-events: none;
-    }
-    .extra-time-line {
-      stroke: black;
-      pointer-events: none;
-    }
-    .period-label {
-      font-family: "Open Sans", sans-serif;
-      font-size: 12px;
-      color: #666;
-      pointer-events: none;
-    }
-    #periodLabels {
-      margin-bottom: 20px;
-      position: relative;
     }
   </style>
 </head>
@@ -141,9 +104,7 @@
   <div id="tooltip"></div>
 </div>
 
-<div id="teamsContainer">
-  <!-- teamsSvg will be inserted here -->
-</div>
+<div id="teamsContainer"></div>
 
 <script>
 /**
@@ -309,18 +270,6 @@ function updateMainChart() {
     .attr("x2", x90)
     .attr("y2", innerHeight);
 
-  // Add half-time line at 45'
-  const x45 = xScale(45);
-  gMain.append("line")
-    .attr("class", "half-time-line")
-    .attr("x1", x45)
-    .attr("y1", 0)
-    .attr("x2", x45)
-    .attr("y2", innerHeight)
-    .attr("stroke", "black")
-    .attr("stroke-width", 1.5)
-    .attr("stroke-dasharray", "5,5");
-
   // 4) Circles
   const colorScale = d3.scaleOrdinal()
     .domain(allTeams)
@@ -349,13 +298,9 @@ function buildTeamSmallMultiples() {
   const container = d3.select("#teamsContainer");
   container.selectAll("*").remove();
 
-  // Set the container width to match main timeline
-  container.style("width", width + "px");
-
+  // We'll create a single <svg> for the small multiples
   teamsSvg = container.append("svg")
-    .attr("id", "teamsSvg")
-    .style("margin", "0 auto")  // Center horizontally
-    .style("display", "block"); // Ensure block display
+    .attr("id", "teamsSvg");
 }
 
 
@@ -368,206 +313,96 @@ function buildTeamSmallMultiples() {
 function updateTeamSmallMultiples() {
   teamsSvg.selectAll("*").remove();
 
-  // Remove any existing period labels first
-  d3.select("#periodLabels").remove();
-
   const excludePen = penaltyCheckEl.checked;
   const showHeatInMini = miniHeatCheckEl.checked;
 
   // Count goals per team under current filters
   let teamGoalsCount = [];
   allTeams.forEach(team => {
-    let allTeamGoals = allGoals.filter(d => d.team === team);
-    let penaltyGoals = allTeamGoals.filter(d => d.shot_type === "Penalty").length;
-    let nonPenaltyGoals = allTeamGoals.filter(d => d.shot_type !== "Penalty").length;
-    
-    teamGoalsCount.push({ 
-      team, 
-      total: allTeamGoals.length,
-      penaltyGoals,
-      nonPenaltyGoals,
-      // Add sortValue that changes based on excludePen
-      sortValue: excludePen ? nonPenaltyGoals : allTeamGoals.length
-    });
+    let tg = allGoals.filter(d => d.team === team);
+    if(excludePen) {
+      tg = tg.filter(d => d.shot_type !== "Penalty");
+    }
+    const total = tg.length;
+    teamGoalsCount.push({ team, total });
   });
-  
-  // Sort by the dynamic sortValue
-  teamGoalsCount.sort((a, b) => d3.descending(a.sortValue, b.sortValue));
+  // Sort desc
+  teamGoalsCount.sort((a, b) => d3.descending(a.total, b.total));
 
-  // Calculate the exact dimensions from the main chart
-  const mainChartStart = margin.left;
-  const minute130Position = xScale(130);
-  const mainChartWidth = minute130Position - mainChartStart;
-
-  // Additional offsets for labels (but don't affect graph alignment)
-  const labelOffset = {
-    left: 80,
-    right: 40
-  };
-
-  const chartWidth = width;
-  const chartHeight = 60;
-  const spacing = 10;
-  const totalHeight = teamGoalsCount.length * (chartHeight + spacing) + 20;
-  
-  // Set the SVG width to include label spaces but position content relative to main chart
-  const totalWidth = width + labelOffset.left + labelOffset.right;
-  
-  // Set container width to match main chart width
-  d3.select("#teamsContainer")
-    .style("width", width + "px")
-    .style("margin", "0 auto")
-    .style("position", "relative");
-
-  // Center the SVG by adjusting its position
+  const chartWidth = 800, chartHeight = 60, spacing=10;
+  const totalHeight = teamGoalsCount.length*(chartHeight+spacing)+20;
   teamsSvg
-    .attr("width", totalWidth)
-    .attr("height", totalHeight)
-    .style("margin", "0 auto")
-    .style("transform", `translateX(${-labelOffset.left/2}px)`);  // Shift left by half the label offset
+    .attr("width", chartWidth+60)
+    .attr("height", totalHeight);
 
-  // Use scale that ends exactly at minute 130
-  const xScaleSmall = d3.scaleLinear()
-    .domain(xDomain)
-    .range([mainChartStart, mainChartStart + minute130Position - mainChartStart]);  // End at minute 130
+  // We'll define a reversed x-scale for the small multiples:
+  // minute=0 => right edge, minute=130 => left edge
+  const xScaleRev = d3.scaleLinear()
+    .domain([0,130])
+    .range([chartWidth-50, 0]); // reversed
 
+  // color scale for circles
   const colorScale = d3.scaleOrdinal()
     .domain(allTeams)
     .range(d3.schemeCategory10);
 
-  // Add period labels in a separate container
-  const labelContainer = d3.select("#teamsContainer")
-    .insert("div", "#teamsSvg")
-    .attr("id", "periodLabels")
-    .style("position", "relative")
-    .style("height", "30px")
-    .style("width", width + "px")
-    .style("margin", "10px auto");
-
-  // Center the period labels container
-  labelContainer
-    .style("width", width + "px")
-    .style("margin", "10px auto")
-    .style("transform", `translateX(${-labelOffset.left/2}px)`);  // Match SVG shift
-
-  // Calculate positions based on the main chart scale
-  const firstHalfX = margin.left;  // Start of chart
-  const secondHalfX = margin.left + xScale(45);  // 45-minute mark
-  const extraTimeX = margin.left + xScale(90);   // 90-minute mark
-  const chartEndX = margin.left + xScale(130);   // End of chart
-
-  // Add the period labels
-  const labels = [
-    { text: "First Half", x: firstHalfX, width: secondHalfX - firstHalfX },
-    { text: "Second Half", x: secondHalfX, width: extraTimeX - secondHalfX },
-    { text: "Extra Time", x: extraTimeX, width: chartEndX - extraTimeX }
-  ];
-
-  labels.forEach(label => {
-    labelContainer.append("div")
-      .style("position", "absolute")
-      .style("left", label.x + "px")
-      .style("width", label.width + "px")
-      .style("text-align", "center")
-      .style("font-size", "12px")
-      .style("color", "#666")
-      .style("top", "0")
-      .text(label.text);
-  });
-
   teamGoalsCount.forEach((obj, i) => {
-    const { team, total, penaltyGoals } = obj;
-    const yOffset = i * (chartHeight + spacing) + 10;
+    const { team, total } = obj;
+    const yOffset = i*(chartHeight+spacing)+10;
 
     const subG = teamsSvg.append("g")
-      .attr("transform", `translate(${labelOffset.left},${yOffset})`);
+      .attr("transform", `translate(50,${yOffset})`);
 
-    // Background rect - end at minute 130
+    // background
     subG.append("rect")
       .attr("class", "team-chart-bg")
-      .attr("width", mainChartWidth)  // Width up to minute 130
+      .attr("width", chartWidth-50)
       .attr("height", chartHeight)
-      .attr("x", mainChartStart)
-      .attr("y", 0)
-      .attr("fill", "#f0f0f0");
+      .attr("x", 0)
+      .attr("y", 0);
 
-    // Team name on the left
+    // label => "TeamName (X goals)", anchored on the left
     subG.append("text")
       .attr("class", "team-label")
-      .attr("x", mainChartStart - 10)
+      .attr("x", 0) // left side
       .attr("y", chartHeight/2)
-      .attr("text-anchor", "end")
-      .attr("dominant-baseline", "middle")
-      .text(team);
+      .text(`${team} (${total} goals)`);
 
-    // Modified Goal count on the right
-    const goalText = penaltyGoals > 0 ? 
-      `${total} Goals (${penaltyGoals} Penalty)` : 
-      `${total} Goals`;
-
-    subG.append("text")
-      .attr("class", "goal-count")
-      .attr("x", mainChartStart + mainChartWidth + 10)
-      .attr("y", chartHeight/2)
-      .attr("text-anchor", "start")
-      .attr("dominant-baseline", "middle")
-      .text(goalText);
-
-    // Filter goals for this team
+    // filter the actual goals for this team
     let rowGoals = allGoals.filter(d => d.team === team);
     if(excludePen) {
       rowGoals = rowGoals.filter(d => d.shot_type !== "Penalty");
     }
 
+    // optional heatmap
     if(showHeatInMini) {
-      // Create more granular bins for smoother heatmap
-      const minuteCounts = new Array(261).fill(0);  // Double the resolution
-      
-      // Count goals with more granular binning and stronger spread
+      const minuteCounts = new Array(131).fill(0);
       rowGoals.forEach(d => {
-        const m = Math.floor(d.clampedMinute * 2);  // Double resolution
-        // Spread the influence further with stronger weights
-        for(let i = Math.max(0, m-4); i <= Math.min(260, m+4); i++) {
-          const distance = Math.abs(m - i);
-          // Exponential decay for smoother spread
-          minuteCounts[i] += Math.exp(-distance * 0.5);  // Slower decay for wider spread
-        }
+        const m = Math.floor(d.clampedMinute);
+        minuteCounts[m]++;
       });
-
       const maxCount = d3.max(minuteCounts) || 0;
-      
-      // Use a more sensitive color scale with power scale for better visibility of low values
-      const heatColor = d3.scaleSequential()
-        .domain([0, maxCount * 0.7])  // Compress the range to make colors more visible
-        .interpolator(t => d3.interpolateRgb("#ffffff", "#ff4500")(Math.pow(t, 0.4)));  // Reduced power for less intensity
+      const heatColor = d3.scaleLinear()
+        .domain([0, maxCount])
+        .range(["#ffffff", "#ff4500"]);
 
-      // White background
-      const heatGroup = subG.append("g")
-        .attr("class", "heat-group");
+      const binWidth = xScaleRev(129) - xScaleRev(130); 
+      // e.g. xScaleRev(129) might be > xScaleRev(130) => negative
+      // We'll take the abs
+      const binW = Math.abs(binWidth);
 
-      heatGroup.append("rect")
-        .attr("x", mainChartStart)
-        .attr("y", 0)
-        .attr("width", mainChartWidth)
-        .attr("height", chartHeight)
-        .attr("fill", "#ffffff");
-
-      // Smaller bins for smoother appearance
-      const binWidth = (xScaleSmall(0.5) - xScaleSmall(0));  // Half-minute bins
-      
-      heatGroup.selectAll(".mini-heat-rect")
+      subG.selectAll(".mini-heat-rect")
         .data(minuteCounts)
         .enter().append("rect")
           .attr("class", "mini-heat-rect")
-          .attr("x", (count, i) => xScaleSmall(i/2))
+          .attr("x", (count, i) => xScaleRev(i) - binW) // shift by bin width
           .attr("y", 0)
-          .attr("width", binWidth + 0.5)
+          .attr("width", binW+0.5)
           .attr("height", chartHeight)
-          .attr("fill", c => heatColor(c))
-          .attr("opacity", 0.4);  // Reduced opacity from 0.9 to 0.6
+          .attr("fill", c => heatColor(c));
     }
 
-    // Goals circles - using same scale as main chart
+    // Now circles
     const yCenter = chartHeight/2;
     subG.selectAll(".team-goal")
       .data(rowGoals)
@@ -575,36 +410,12 @@ function updateTeamSmallMultiples() {
         .attr("class", "team-goal")
         .attr("r", 4)
         .attr("fill", colorScale(team))
-        .attr("stroke", "#333")  // Add black stroke
-        .attr("stroke-width", 1)  // Set stroke width
-        .attr("cx", d => xScaleSmall(d.timeInMin))
-        .attr("cy", () => yCenter + (Math.random()*6 - 3));
-
-    // Add half-time line at 45' (with lower opacity)
-    const x45 = xScaleSmall(45);
-    subG.append("line")
-      .attr("class", "half-time-line")
-      .attr("x1", x45)
-      .attr("y1", 0)
-      .attr("x2", x45)
-      .attr("y2", chartHeight)
-      .attr("stroke", "black")
-      .attr("stroke-width", 1)
-      .attr("stroke-dasharray", "4,4")
-      .attr("opacity", 0.3);
-
-    // Add extra-time line at 90' (with lower opacity)
-    const x90 = xScaleSmall(90);
-    subG.append("line")
-      .attr("class", "extra-time-line")
-      .attr("x1", x90)
-      .attr("y1", 0)
-      .attr("x2", x90)
-      .attr("y2", chartHeight)
-      .attr("stroke", "black")
-      .attr("stroke-width", 1.5)
-      .attr("stroke-dasharray", "3,3")
-      .attr("opacity", 0.3);
+        .attr("cx", d => xScaleRev(d.timeInMin))
+        .attr("cy", () => yCenter + (Math.random()*6 - 3))
+        .on("mouseover", (event, d) => {
+          showTooltip(event, d);
+        })
+        .on("mouseout", hideTooltip);
   });
 }
 
@@ -666,23 +477,6 @@ function showTooltip(event, d) {
 
 function hideTooltip() {
   tooltip.style("display", "none");
-}
-
-// First, add this CSS rule to align the containers
-function addCenteringCSS() {
-  const style = document.createElement('style');
-  style.textContent = `
-    #mainTimelineContainer, #teamsContainer {
-      width: ${width}px;
-      margin: 0 auto;
-      position: relative;
-    }
-    #teamsSvg {
-      display: block;
-      margin-left: ${-labelOffset.left}px;  /* Offset the extra width */
-    }
-  `;
-  document.head.appendChild(style);
 }
 </script>
 </body>
